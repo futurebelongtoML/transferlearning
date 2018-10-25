@@ -17,8 +17,6 @@ from tqdm import tqdm
 import numpy as np
 from torch.nn import DataParallel
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 CUDA = True if torch.cuda.is_available() else False
 LEARNING_RATE = 0.001
@@ -113,9 +111,11 @@ if __name__ == '__main__':
     torch.manual_seed(10)
     root_dir = 'data/OFFICE31/'
     src, tar = 'amazon', 'webcam'
-    model_name = 'alexnet'
-    data_src, data_tar = data_loader.load_training(root_dir, src, BATCH_SIZE_SRC), \
-                         data_loader.load_testing(root_dir, tar, BATCH_SIZE_TAR)
+    model_name = 'resnet'
+    batch_size_src = BATCH_SIZE_SRC if model_name=="alexnet" else 8
+    batch_size_tar = BATCH_SIZE_TAR if model_name=="alexnet" else 8
+    data_src, data_tar = data_loader.load_training(root_dir, src, batch_size_src), \
+                         data_loader.load_testing(root_dir, tar, batch_size_tar)
     print('Source:{}, target:{}'.format(src, tar))
 
     model = load_model(model_name).to(DEVICE)
