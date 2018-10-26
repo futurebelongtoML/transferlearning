@@ -16,18 +16,21 @@ import torchvision
 from tqdm import tqdm
 import numpy as np
 from torch.nn import DataParallel
+import time
+from tensorboardX import SummaryWriter
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 CUDA = True if torch.cuda.is_available() else False
 LEARNING_RATE = 0.001
-BATCH_SIZE_SRC = 64
-BATCH_SIZE_TAR = 64
+BATCH_SIZE_SRC = 32
+BATCH_SIZE_TAR = 32
 L2_DECAY = 5e-4
 DROPOUT = 0.5
 N_EPOCH = 200
 MOMENTUM = 0.9
 RES_TRAIN = []
 RES_TEST = []
+writer = SummaryWriter("/tmp/transfer_finetune")
 
 
 def train(epoch, model, optimizer, data_src):
@@ -37,6 +40,7 @@ def train(epoch, model, optimizer, data_src):
     criterion = nn.CrossEntropyLoss()
     correct = 0
     total_loss = 0
+    start = time.time()
 
     for batch_idx, (data, target) in enumerate(data_src):
         data, target = data.to(DEVICE), target.to(DEVICE)
@@ -48,11 +52,16 @@ def train(epoch, model, optimizer, data_src):
         total_loss += loss.item()
         loss.backward()
         optimizer.step()
+        if batch_idx==0:
+            image = torchvision.utils.make_grid(data[:4]*4, padding=100, normalize=True, range=(0, 1))
+            writer.add_image('source_image', image, epoch)
     acc_train = float(correct) * 100. / (n_batch * BATCH_SIZE_SRC)
-    tqdm.write('Epoch: [{}/{}],\ttrain loss: {:.6f},\tcorrect: [{}/{}],\ttrain accuracy: {:.4f}%'.format(
-        epoch, N_EPOCH, total_loss / n_batch, correct, len(data_src.dataset), acc_train
+    tqdm.write('Epoch: [{}/{}],speed: {:.4f}(s/step),train loss: {:.6f},correct: [{}/{}],train accuracy: {:.4f}%'.format(
+        epoch, N_EPOCH, (time.time()-start)/(n_batch * BATCH_SIZE_SRC), total_loss / n_batch, correct, len(data_src.dataset), acc_train
     ))
     RES_TRAIN.append([epoch, total_loss / n_batch, acc_train])
+    writer.add_scalars("loss", {"train": total_loss / n_batch}, epoch)
+    writer.add_scalars("accuracy", {"train": acc_train}, epoch)
 
 
 def test(epoch, model, data_tar):
@@ -69,11 +78,16 @@ def test(epoch, model, data_tar):
             pred = output.data.max(1, keepdim=True)[1]
             correct += pred.eq(target.data.view_as(pred)).sum()
             total_loss += loss.item()
+            if batch_idx==0:
+                image = torchvision.utils.make_grid(data[:4]*4, padding=100, normalize=True, range=(0, 1))
+                writer.add_image('target_image', image, epoch)
         acc_test = float(correct) * 100. / (n_batch * BATCH_SIZE_SRC)
-        tqdm.write('Epoch: [{}/{}],\ttest loss: {:.6f},\tcorrect: [{}/{}],\ttest accuracy: {:.4f}%'.format(
+        tqdm.write('Epoch: [{}/{}],test loss: {:.6f},correct: [{}/{}],test accuracy: {:.4f}%'.format(
             epoch, N_EPOCH, total_loss / n_batch, correct, len(data_tar.dataset), acc_test
         ))
         RES_TEST.append([epoch, total_loss / n_batch, acc_test])
+        writer.add_scalars("loss", {"test": total_loss / n_batch}, epoch)
+        writer.add_scalars("accuracy", {"test": acc_test}, epoch)
 
 
 def load_model(name='alexnet'):
@@ -112,11 +126,12 @@ if __name__ == '__main__':
     root_dir = 'data/OFFICE31/'
     src, tar = 'amazon', 'webcam'
     model_name = 'resnet'
-    batch_size_src = BATCH_SIZE_SRC if model_name=="alexnet" else 8
-    batch_size_tar = BATCH_SIZE_TAR if model_name=="alexnet" else 8
+    batch_size_src = BATCH_SIZE_SRC if model_name=="alexnet" else 32
+    batch_size_tar = BATCH_SIZE_TAR if model_name=="alexnet" else 32
     data_src, data_tar = data_loader.load_training(root_dir, src, batch_size_src), \
                          data_loader.load_testing(root_dir, tar, batch_size_tar)
     print('Source:{}, target:{}'.format(src, tar))
+    print("Batch size:", batch_size_src)
 
     model = load_model(model_name).to(DEVICE)
     lrs = LEARNING_RATE
